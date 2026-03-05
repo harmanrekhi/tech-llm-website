@@ -282,7 +282,7 @@ function App() {
       const formData = new FormData();
       formData.append("message", message);
       if (uploadedFile) formData.append("file", uploadedFile);
-      const res = await axios.post("https://tech-llm-website-2.onrender.com", formData, {
+      const res = await axios.post("https://tech-llm-website-2.onrender.com/chat", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       updateMessages(activeId, [...updated, { role: "ai", content: res.data.reply }]);
