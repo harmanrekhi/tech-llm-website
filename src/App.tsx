@@ -438,7 +438,7 @@ export default function App() {
           {/* Sidebar */}
           <AnimatePresence initial={false}>
             {sidebarOpen && (
-              <motion.div className="sidebar" key="sidebar"
+              <MotionBox as="div" className="sidebar" key="sidebar"
                 initial={{ width: 0, opacity: 0 }} animate={{ width: 210, opacity: 1 }} exit={{ width: 0, opacity: 0 }}
                 transition={{ duration: 0.28, ease: "easeInOut" }} style={{ overflow:"hidden", minWidth:0 }}>
                 <div className="sidebar-header">
@@ -459,7 +459,7 @@ export default function App() {
                     ✿ {conversations.length} chat{conversations.length !== 1 ? "s" : ""}
                   </Text>
                 </Box>
-              </motion.div>
+              </MotionBox>
             )}
           </AnimatePresence>
 
@@ -491,7 +491,7 @@ export default function App() {
                 )}
 
                 {chat.map((c, i) => (
-                  <motion.div
+                  <MotionBox as="div"
                     key={i}
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -531,7 +531,7 @@ export default function App() {
                     {c.role === "user" && (
                       <div className="msg-avatar-user" style={{ marginLeft: 8 }}>🧑</div>
                     )}
-                  </motion.div>
+                  </MotionBox>
                 ))}
 
                 <AnimatePresence>
