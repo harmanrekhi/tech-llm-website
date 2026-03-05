@@ -15,7 +15,7 @@ import ScrollableFeed from "react-scrollable-feed";
 import { motion, AnimatePresence } from "framer-motion";
 
 const MotionBox = motion(Box);
-const MotionDiv = motion.div;
+const MotionDiv = motion("div");
 
 const theme = extendTheme({
   fonts: {
