@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import axios from "axios";
 import {
   ChakraProvider,
@@ -15,6 +15,7 @@ import ScrollableFeed from "react-scrollable-feed";
 import { motion, AnimatePresence } from "framer-motion";
 
 const MotionBox = motion(Box);
+const MotionDiv = motion.div;
 
 const theme = extendTheme({
   fonts: {
@@ -23,25 +24,74 @@ const theme = extendTheme({
   },
 });
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-type Message = { role: string; content: string; fileName?: string };
+type Message = { role: string; content: string; fileName?: string; time?: string };
 type Conversation = { id: string; title: string; messages: Message[] };
 
-// ── Styles ────────────────────────────────────────────────────────────────────
-const sceneStyles = `
+const getTime = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+// ── Typewriter hook ───────────────────────────────────────────────────────────
+function useTypewriter(text: string, speed = 18) {
+  const [displayed, setDisplayed] = useState("");
+  const [done, setDone] = useState(false);
+  useEffect(() => {
+    setDisplayed("");
+    setDone(false);
+    if (!text) return;
+    let i = 0;
+    const interval = setInterval(() => {
+      i++;
+      setDisplayed(text.slice(0, i));
+      if (i >= text.length) { clearInterval(interval); setDone(true); }
+    }, speed);
+    return () => clearInterval(interval);
+  }, [text]);
+  return { displayed, done };
+}
+
+// ── AI bubble with typewriter ─────────────────────────────────────────────────
+function AIBubble({ content, isLatest }: { content: string; isLatest: boolean }) {
+  const { displayed } = useTypewriter(isLatest ? content : "");
+  const text = isLatest ? displayed : content;
+  return (
+    <MotionBox
+      className="bubble-ai"
+      px="4" py="3" maxW={{ base: "85vw", md: "270px" }} wordBreak="break-word"
+      fontSize="15px" lineHeight="1.7"
+      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ duration: 0.35, ease: "easeOut" }}
+    >
+      {text}
+      {isLatest && displayed.length < content.length && (
+        <span className="cursor-blink">|</span>
+      )}
+    </MotionBox>
+  );
+}
+
+const styles = `
 @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300&display=swap');
-* { box-sizing: border-box; }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --sakura-pink: #f4a7b9;
+  --deep-pink: #c96b8a;
+  --blossom: #fde8ef;
+  --mountain-blue: #2d4a6b;
+  --panel-bg: rgba(15,8,18,0.65);
+  --border-glow: rgba(244,167,185,0.28);
+}
+
+html, body { height: 100%; background: #1a0e18; overflow: hidden; }
 
 .sakura-root {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  overflow: hidden;
-  background: #1a0e18;
+  width: 100vw; height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+  position: relative; overflow: hidden;
   font-family: 'Cormorant Garamond', serif;
 }
+
+/* ── Sky ── */
 .sky {
   position: fixed; inset: 0; z-index: 0;
   background: linear-gradient(180deg,
@@ -91,151 +141,189 @@ const sceneStyles = `
   100% { opacity: 0; transform: translateX(var(--drift)) rotate(var(--rot)) translateY(105vh); }
 }
 
+/* ── Layout ── */
+.ui-shell {
+  position: relative; z-index: 10;
+  display: flex; align-items: stretch;
+  width: min(680px, 98vw);
+  height: min(680px, 96vh);
+}
+
 /* ── Sidebar ── */
 .sidebar {
-  height: 660px;
-  background: rgba(10,5,15,0.72);
+  height: 100%;
+  background: rgba(10,5,15,0.78);
   backdrop-filter: blur(20px);
   border: 1px solid rgba(244,167,185,0.2);
   border-right: none;
   border-radius: 24px 0 0 24px;
-  display: flex; flex-direction: column;
-  overflow: hidden; flex-shrink: 0;
+  display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0;
 }
 .sidebar-header {
   padding: 18px 14px 12px;
   border-bottom: 1px solid rgba(244,167,185,0.15);
   display: flex; align-items: center; justify-content: space-between;
 }
-.sidebar-list {
-  flex: 1; overflow-y: auto; padding: 8px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(244,167,185,0.2) transparent;
-}
+.sidebar-list { flex: 1; overflow-y: auto; padding: 8px; scrollbar-width: thin; scrollbar-color: rgba(244,167,185,0.2) transparent; }
 .sidebar-list::-webkit-scrollbar { width: 3px; }
 .sidebar-list::-webkit-scrollbar-thumb { background: rgba(244,167,185,0.2); border-radius: 3px; }
 .convo-item {
   padding: 9px 11px; border-radius: 12px; cursor: pointer; margin-bottom: 4px;
-  transition: background 0.2s; border: 1px solid transparent;
-  display: flex; align-items: center; gap: 7px;
+  border: 1px solid transparent; display: flex; align-items: center; gap: 7px; transition: all 0.2s;
 }
-.convo-item:hover { background: rgba(244,167,185,0.1); }
+.convo-item:hover { background: rgba(244,167,185,0.1); border-color: rgba(244,167,185,0.15); }
 .convo-item.active { background: rgba(201,107,138,0.2); border-color: rgba(244,167,185,0.3); }
-.convo-title {
-  font-size: 13px; color: rgba(253,232,239,0.85);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1;
-}
-.del-btn {
-  opacity: 0; transition: opacity 0.2s; cursor: pointer;
-  color: rgba(244,167,185,0.55); font-size: 12px; flex-shrink: 0;
-  background: none; border: none; padding: 0 2px;
-}
+.convo-title { font-size: 13px; color: rgba(253,232,239,0.85); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+.del-btn { opacity: 0; transition: opacity 0.2s; cursor: pointer; color: rgba(244,167,185,0.55); font-size: 11px; background: none; border: none; }
 .convo-item:hover .del-btn { opacity: 1; }
+.new-chat-btn {
+  background: rgba(201,107,138,0.22); border: 1px solid rgba(244,167,185,0.32);
+  border-radius: 8px; color: #fde8ef; cursor: pointer; padding: 3px 10px; font-size: 19px; line-height: 1; transition: all 0.2s;
+}
+.new-chat-btn:hover { background: rgba(201,107,138,0.38); box-shadow: 0 0 12px rgba(244,167,185,0.3); }
 
 /* ── Chat panel ── */
 .chat-panel {
-  position: relative; z-index: 10;
-  background: rgba(15,8,18,0.6);
+  flex: 1; height: 100%;
+  background: var(--panel-bg);
   backdrop-filter: blur(22px) saturate(180%);
-  border: 1px solid rgba(244,167,185,0.28);
-  box-shadow: 0 0 0 1px rgba(255,255,255,0.04) inset,
-              0 28px 70px rgba(0,0,0,0.55),
-              0 0 60px rgba(201,107,138,0.12);
-  overflow: hidden; display: flex; flex-direction: column;
+  border: 1px solid var(--border-glow);
+  display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.04) inset, 0 28px 70px rgba(0,0,0,0.55), 0 0 60px rgba(201,107,138,0.12);
 }
+
+/* ── Header ── */
 .chat-header {
-  padding: 16px 20px 13px;
-  background: linear-gradient(135deg, rgba(201,107,138,0.2), rgba(61,100,148,0.12));
+  padding: 14px 18px 12px;
+  background: linear-gradient(135deg, rgba(201,107,138,0.22), rgba(61,100,148,0.12));
   border-bottom: 1px solid rgba(244,167,185,0.18);
-  display: flex; align-items: center; gap: 11px;
+  display: flex; align-items: center; gap: 11px; flex-shrink: 0;
 }
-.avatar-ring {
+.toggle-btn {
+  background: rgba(244,167,185,0.1); border: 1px solid rgba(244,167,185,0.22);
+  border-radius: 9px; color: #fde8ef; cursor: pointer; padding: 5px 9px; font-size: 13px; transition: all 0.2s; flex-shrink: 0;
+}
+.toggle-btn:hover { background: rgba(244,167,185,0.2); }
+
+/* ── Avatars ── */
+.avatar-ai {
   width: 42px; height: 42px; border-radius: 50%; flex-shrink: 0;
   background: linear-gradient(135deg, #f4a7b9, #c96b8a, #8b4f7a);
   display: flex; align-items: center; justify-content: center; font-size: 19px;
+  box-shadow: 0 0 18px rgba(201,107,138,0.5);
   animation: avatarPulse 2.5s ease-in-out infinite;
 }
 @keyframes avatarPulse {
   0%,100% { box-shadow: 0 0 18px rgba(201,107,138,0.5); }
   50%      { box-shadow: 0 0 30px rgba(244,167,185,0.75); }
 }
-.feed-area { scrollbar-width: thin; scrollbar-color: rgba(244,167,185,0.3) transparent; }
+.msg-avatar-ai {
+  width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+  background: linear-gradient(135deg, #f4a7b9, #c96b8a);
+  display: flex; align-items: center; justify-content: center; font-size: 14px;
+  box-shadow: 0 0 10px rgba(201,107,138,0.4);
+  align-self: flex-end;
+}
+.msg-avatar-user {
+  width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+  background: linear-gradient(135deg, #9b4f75, #6b3355);
+  display: flex; align-items: center; justify-content: center; font-size: 14px;
+  box-shadow: 0 0 10px rgba(155,79,117,0.4);
+  align-self: flex-end;
+}
+
+/* ── Feed ── */
+.feed-area {
+  flex: 1; overflow-y: auto; padding: 16px;
+  scrollbar-width: thin; scrollbar-color: rgba(244,167,185,0.3) transparent;
+}
 .feed-area::-webkit-scrollbar { width: 4px; }
 .feed-area::-webkit-scrollbar-thumb { background: rgba(244,167,185,0.3); border-radius: 4px; }
+
+/* ── Bubbles ── */
 .bubble-user {
   background: linear-gradient(135deg, #c96b8a, #9b4f75);
-  color: #fff5f8; border-radius: 22px 22px 6px 22px;
+  color: #fff5f8; border-radius: 18px 18px 4px 18px;
   box-shadow: 0 4px 18px rgba(201,107,138,0.35), 0 0 0 1px rgba(255,255,255,0.1) inset;
+  font-family: 'Cormorant Garamond', serif;
+  position: relative; overflow: hidden;
+}
+.bubble-user::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
 }
 .bubble-ai {
-  background: rgba(255,255,255,0.07); color: #fde8ef;
-  border-radius: 22px 22px 22px 6px;
+  background: rgba(255,255,255,0.08); color: #fde8ef;
+  border-radius: 18px 18px 18px 4px;
   border: 1px solid rgba(244,167,185,0.22);
   box-shadow: 0 4px 18px rgba(0,0,0,0.3);
+  font-family: 'Cormorant Garamond', serif;
+}
+.msg-time {
+  font-size: 10px; color: rgba(244,167,185,0.4);
+  margin-top: 3px; letter-spacing: 0.04em;
+  font-family: 'Cormorant Garamond', serif;
 }
 .file-chip {
   display: inline-flex; align-items: center; gap: 6px;
-  background: rgba(244,167,185,0.14);
-  border: 1px solid rgba(244,167,185,0.3);
-  border-radius: 10px; padding: 5px 11px;
-  font-size: 12px; color: rgba(253,232,239,0.85);
-  margin-bottom: 4px;
+  background: rgba(244,167,185,0.14); border: 1px solid rgba(244,167,185,0.3);
+  border-radius: 10px; padding: 5px 11px; font-size: 12px; color: rgba(253,232,239,0.85); margin-bottom: 4px;
+}
+
+/* ── Cursor blink ── */
+.cursor-blink {
+  display: inline-block; margin-left: 1px; color: rgba(244,167,185,0.8);
+  animation: cursorBlink 0.7s ease-in-out infinite;
+}
+@keyframes cursorBlink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+/* ── Input ── */
+.input-area {
+  padding: 10px 14px 16px; flex-shrink: 0;
+  border-top: 1px solid rgba(244,167,185,0.15); background: rgba(0,0,0,0.2);
 }
 .input-wrap {
-  background: rgba(255,255,255,0.07);
-  border: 1px solid rgba(244,167,185,0.22);
-  border-radius: 999px;
-  transition: border-color 0.3s, box-shadow 0.3s;
+  background: rgba(255,255,255,0.07); border: 1px solid rgba(244,167,185,0.22);
+  border-radius: 999px; transition: all 0.3s;
   display: flex; align-items: center; flex: 1; padding: 0 12px; gap: 6px;
 }
-.input-wrap:focus-within {
-  border-color: rgba(244,167,185,0.6);
-  box-shadow: 0 0 18px rgba(201,107,138,0.22);
+.input-wrap:focus-within { border-color: rgba(244,167,185,0.6); box-shadow: 0 0 18px rgba(201,107,138,0.22); }
+.clip-btn { background: none; border: none; cursor: pointer; color: rgba(244,167,185,0.55); display: flex; align-items: center; padding: 0; transition: color 0.2s; flex-shrink: 0; }
+.clip-btn:hover { color: rgba(244,167,185,1); filter: drop-shadow(0 0 4px rgba(244,167,185,0.5)); }
+
+/* ── Typing dots ── */
+.dot { display:inline-block; border-radius:50%; width:7px; height:7px; background:rgba(244,167,185,0.8); animation: dotBounce 1.1s ease-in-out infinite; }
+.dot:nth-child(2){animation-delay:.18s} .dot:nth-child(3){animation-delay:.36s}
+@keyframes dotBounce { 0%,80%,100%{transform:translateY(0);opacity:0.5} 40%{transform:translateY(-5px);opacity:1} }
+
+/* ── Status ── */
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: #7dffb3; box-shadow: 0 0 8px #7dffb3; animation: statusPulse 2s ease-in-out infinite; }
+@keyframes statusPulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+/* ── Mobile responsive ── */
+@media (max-width: 600px) {
+  .ui-shell { width: 100vw; height: 100vh; border-radius: 0; }
+  .sidebar { display: none; }
+  .chat-panel { border-radius: 0 !important; border: none !important; width: 100vw; }
+  .chat-header { padding: 12px 14px; }
+  .feed-area { padding: 12px; }
+  .input-area { padding: 8px 10px 12px; }
+  .bubble-user, .bubble-ai { max-width: 85vw !important; font-size: 15px; }
 }
-.clip-btn {
-  background: none; border: none; cursor: pointer;
-  color: rgba(244,167,185,0.55); display: flex; align-items: center;
-  padding: 0; transition: color 0.2s; flex-shrink: 0;
-}
-.clip-btn:hover { color: rgba(244,167,185,1); }
-.toggle-btn {
-  background: rgba(244,167,185,0.1);
-  border: 1px solid rgba(244,167,185,0.22);
-  border-radius: 9px; color: #fde8ef; cursor: pointer;
-  padding: 5px 9px; font-size: 14px; transition: background 0.2s; flex-shrink: 0;
-}
-.toggle-btn:hover { background: rgba(244,167,185,0.2); }
-.new-chat-btn {
-  background: rgba(201,107,138,0.22);
-  border: 1px solid rgba(244,167,185,0.32);
-  border-radius: 8px; color: #fde8ef; cursor: pointer;
-  padding: 3px 10px; font-size: 19px; line-height: 1;
-  transition: background 0.2s;
-}
-.new-chat-btn:hover { background: rgba(201,107,138,0.38); }
-.dot { display:inline-block; border-radius:50%; background:rgba(244,167,185,0.8);
-  animation: dotBounce 1.1s ease-in-out infinite; }
-.dot:nth-child(2){animation-delay:.18s}
-.dot:nth-child(3){animation-delay:.36s}
-@keyframes dotBounce {
-  0%,80%,100%{transform:translateY(0);opacity:0.5}
-  40%{transform:translateY(-5px);opacity:1}
-}
-@keyframes statusBlink { 0%,100%{opacity:1} 50%{opacity:0.35} }
 `;
 
-// ── App ───────────────────────────────────────────────────────────────────────
-function App() {
+export default function App() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [latestAiIndex, setLatestAiIndex] = useState<number>(-1);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const makeConvo = (): Conversation => ({ id: Date.now().toString(), title: "New Chat", messages: [] });
   const [conversations, setConversations] = useState<Conversation[]>([makeConvo()]);
   const [activeId, setActiveId] = useState<string>(conversations[0].id);
-
   const activeConvo = conversations.find((c) => c.id === activeId)!;
   const chat = activeConvo?.messages ?? [];
 
@@ -259,11 +347,7 @@ function App() {
     e.stopPropagation();
     setConversations((prev) => {
       const next = prev.filter((c) => c.id !== id);
-      if (next.length === 0) {
-        const fresh = makeConvo();
-        setActiveId(fresh.id);
-        return [fresh];
-      }
+      if (next.length === 0) { const f = makeConvo(); setActiveId(f.id); return [f]; }
       if (id === activeId) setActiveId(next[0].id);
       return next;
     });
@@ -272,12 +356,10 @@ function App() {
   const sendMessage = async () => {
     if (!message.trim() && !uploadedFile) return;
     const fileName = uploadedFile?.name;
-    const userMsg: Message = { role: "user", content: message || `📎 ${fileName}`, fileName };
+    const userMsg: Message = { role: "user", content: message || `📎 ${fileName}`, fileName, time: getTime() };
     const updated = [...chat, userMsg];
     updateMessages(activeId, updated);
-    setMessage("");
-    setUploadedFile(null);
-    setLoading(true);
+    setMessage(""); setUploadedFile(null); setLoading(true);
     try {
       const formData = new FormData();
       formData.append("message", message);
@@ -285,47 +367,36 @@ function App() {
       const res = await axios.post("https://tech-llm-website-2.onrender.com/chat", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-      updateMessages(activeId, [...updated, { role: "ai", content: res.data.reply }]);
+      const aiMsg: Message = { role: "ai", content: res.data.reply, time: getTime() };
+      const newMsgs = [...updated, aiMsg];
+      updateMessages(activeId, newMsgs);
+      setLatestAiIndex(newMsgs.length - 1);
     } catch {
-      updateMessages(activeId, [...updated, { role: "ai", content: "Error: Cannot load AI assistant." }]);
-    } finally {
-      setLoading(false);
-    }
+      const errMsg: Message = { role: "ai", content: "Error: Cannot load AI assistant.", time: getTime() };
+      updateMessages(activeId, [...updated, errMsg]);
+    } finally { setLoading(false); }
   };
 
-  const stars = useRef(
-    Array.from({ length: 70 }, (_, i) => ({
-      id: i, left: `${Math.random() * 100}%`, top: `${Math.random() * 45}%`,
-      size: Math.random() * 2.2 + 0.6,
-      d: `${(Math.random() * 3 + 2).toFixed(1)}s`, dl: `${(Math.random() * 5).toFixed(1)}s`,
-      oa: (Math.random() * 0.25 + 0.1).toFixed(2), ob: (Math.random() * 0.5 + 0.5).toFixed(2),
-    }))
-  ).current;
-
-  const petals = useRef(
-    Array.from({ length: 24 }, (_, i) => ({
-      id: i, left: `${Math.random() * 110 - 5}%`, w: Math.random() * 9 + 8,
-      pd: `${(Math.random() * 8 + 6).toFixed(1)}s`, dl: `${(Math.random() * 14).toFixed(1)}s`,
-      drift: `${((Math.random() - 0.5) * 200).toFixed(0)}px`,
-      rot: `${Math.random() > 0.5 ? 360 : -360}deg`,
-    }))
-  ).current;
+  const stars = useRef(Array.from({ length: 70 }, (_, i) => ({ id: i, left: `${Math.random()*100}%`, top: `${Math.random()*45}%`, size: Math.random()*2.2+0.6, d: `${(Math.random()*3+2).toFixed(1)}s`, dl: `${(Math.random()*5).toFixed(1)}s`, oa: (Math.random()*0.25+0.1).toFixed(2), ob: (Math.random()*0.5+0.5).toFixed(2) }))).current;
+  const petals = useRef(Array.from({ length: 24 }, (_, i) => ({ id: i, left: `${Math.random()*110-5}%`, w: Math.random()*9+8, pd: `${(Math.random()*8+6).toFixed(1)}s`, dl: `${(Math.random()*14).toFixed(1)}s`, drift: `${((Math.random()-0.5)*200).toFixed(0)}px`, rot: `${Math.random()>0.5?360:-360}deg` }))).current;
 
   return (
     <ChakraProvider theme={theme}>
-      <style>{sceneStyles}</style>
+      <style>{styles}</style>
       <div className="sakura-root">
 
-        {/* ── Background ── */}
+        {/* Background */}
         <div className="sky" />
         <div className="moon" />
         <div className="stars-layer">
           {stars.map((s) => (
-            <div key={s.id} className="star" style={{ left: s.left, top: s.top, width: s.size, height: s.size, "--d": s.d, "--dl": s.dl, "--oa": s.oa, "--ob": s.ob } as React.CSSProperties} />
+            <div key={s.id} className="star" style={{ left: s.left, top: s.top, width: s.size, height: s.size, "--d": s.d, "--dl": s.dl, "--oa": s.oa, "--ob": s.ob } as React.CSSProperties}/>
           ))}
         </div>
+
+        {/* Mountains */}
         <svg viewBox="0 0 1440 500" preserveAspectRatio="xMidYMax slice" xmlns="http://www.w3.org/2000/svg"
-          style={{ position: "fixed", bottom: 0, left: 0, width: "100%", height: "70%", zIndex: 1 }}>
+          style={{ position:"fixed", bottom:0, left:0, width:"100%", height:"70%", zIndex:1 }}>
           <polygon points="0,500 200,180 400,500" fill="#1e1535" opacity="0.88"/>
           <polygon points="150,500 420,115 690,500" fill="#251c40" opacity="0.9"/>
           <polygon points="500,500 750,75 1000,500" fill="#2d2250" opacity="0.82"/>
@@ -340,8 +411,10 @@ function App() {
           <polygon points="1050,500 1250,255 1440,405 1440,500" fill="#4a2870" opacity="0.7"/>
           <ellipse cx="720" cy="495" rx="900" ry="90" fill="#120a18"/>
         </svg>
+
+        {/* Sakura trees */}
         <svg viewBox="0 0 1440 380" preserveAspectRatio="xMidYMax slice" xmlns="http://www.w3.org/2000/svg"
-          style={{ position: "fixed", bottom: 0, left: 0, width: "100%", height: "50%", zIndex: 2, pointerEvents: "none" }}>
+          style={{ position:"fixed", bottom:0, left:0, width:"100%", height:"50%", zIndex:2, pointerEvents:"none" }}>
           <rect x="80" y="190" width="13" height="190" fill="#1a0e18" rx="6"/>
           <ellipse cx="76" cy="182" rx="44" ry="34" fill="rgba(244,167,185,0.88)"/>
           <ellipse cx="114" cy="167" rx="38" ry="29" fill="rgba(249,195,205,0.82)"/>
@@ -350,158 +423,148 @@ function App() {
           <ellipse cx="1360" cy="165" rx="48" ry="37" fill="rgba(244,167,185,0.88)"/>
           <ellipse cx="1322" cy="150" rx="40" ry="31" fill="rgba(249,195,205,0.82)"/>
           <ellipse cx="1384" cy="185" rx="36" ry="27" fill="rgba(201,107,138,0.78)"/>
-          <rect x="222" y="272" width="9" height="108" fill="#1a0e18" rx="5"/>
-          <ellipse cx="222" cy="263" rx="30" ry="22" fill="rgba(244,167,185,0.78)"/>
-          <rect x="1213" y="280" width="9" height="100" fill="#1a0e18" rx="5"/>
-          <ellipse cx="1213" cy="272" rx="31" ry="22" fill="rgba(244,167,185,0.78)"/>
         </svg>
-        <div className="mist" style={{ bottom: "33%", height: 75, "--md": "8s" } as React.CSSProperties}/>
-        <div className="mist" style={{ bottom: "27%", height: 48, "--md": "12s", opacity: 0.4 } as React.CSSProperties}/>
+
+        <div className="mist" style={{ bottom:"33%", height:75, "--md":"8s" } as React.CSSProperties}/>
+        <div className="mist" style={{ bottom:"27%", height:48, "--md":"12s", opacity:0.4 } as React.CSSProperties}/>
+
         {petals.map((p) => (
-          <div key={p.id} className="petal-el" style={{ left: p.left, width: p.w, height: p.w * 0.76, "--pd": p.pd, "--dl": p.dl, "--drift": p.drift, "--rot": p.rot } as React.CSSProperties}/>
+          <div key={p.id} className="petal-el" style={{ left:p.left, width:p.w, height:p.w*0.76, "--pd":p.pd, "--dl":p.dl, "--drift":p.drift, "--rot":p.rot } as React.CSSProperties}/>
         ))}
 
-        {/* ── UI Shell ── */}
-        <HStack spacing={0} align="stretch" style={{ position: "relative", zIndex: 10, height: 660 }}>
+        {/* UI Shell */}
+        <div className="ui-shell">
 
-          {/* SIDEBAR */}
+          {/* Sidebar */}
           <AnimatePresence initial={false}>
             {sidebarOpen && (
-              <MotionBox
-                className="sidebar"
-                key="sidebar"
-                initial={{ width: 0, opacity: 0 }}
-                animate={{ width: 210, opacity: 1 }}
-                exit={{ width: 0, opacity: 0 }}
-                transition={{ duration: 0.28, ease: "easeInOut" }}
-                style={{ overflow: "hidden", minWidth: 0 }}
-              >
+              <MotionDiv className="sidebar" key="sidebar"
+                initial={{ width: 0, opacity: 0 }} animate={{ width: 210, opacity: 1 }} exit={{ width: 0, opacity: 0 }}
+                transition={{ duration: 0.28, ease: "easeInOut" }} style={{ overflow:"hidden", minWidth:0 }}>
                 <div className="sidebar-header">
-                  <Text fontSize="13px" fontWeight="600" color="rgba(253,232,239,0.9)" letterSpacing="0.07em">
-                    🌸 History
-                  </Text>
-                  <button className="new-chat-btn" onClick={startNewChat} title="New Chat">+</button>
+                  <Text fontSize="13px" fontWeight="600" color="rgba(253,232,239,0.9)" letterSpacing="0.07em">🌸 History</Text>
+                  <button className="new-chat-btn" onClick={startNewChat}>+</button>
                 </div>
-
                 <div className="sidebar-list">
                   {conversations.map((c) => (
-                    <div
-                      key={c.id}
-                      className={`convo-item ${c.id === activeId ? "active" : ""}`}
-                      onClick={() => setActiveId(c.id)}
-                    >
-                      <span style={{ fontSize: 13 }}>💬</span>
+                    <div key={c.id} className={`convo-item ${c.id === activeId ? "active" : ""}`} onClick={() => setActiveId(c.id)}>
+                      <span style={{ fontSize:13 }}>💬</span>
                       <span className="convo-title">{c.title}</span>
-                      <button className="del-btn" onClick={(e) => deleteConvo(c.id, e)} title="Delete">✕</button>
+                      <button className="del-btn" onClick={(e) => deleteConvo(c.id, e)}>✕</button>
                     </div>
                   ))}
                 </div>
-
                 <Box p="3" borderTop="1px solid rgba(244,167,185,0.12)">
                   <Text fontSize="10px" color="rgba(244,167,185,0.4)" textAlign="center" letterSpacing="0.1em">
                     ✿ {conversations.length} chat{conversations.length !== 1 ? "s" : ""}
                   </Text>
                 </Box>
-              </MotionBox>
+              </MotionDiv>
             )}
           </AnimatePresence>
 
-          {/* CHAT PANEL */}
-          <Box
-            className="chat-panel"
-            w="430px"
-            style={{
-              borderLeft: sidebarOpen ? "none" : "1px solid rgba(244,167,185,0.28)",
-              borderRadius: sidebarOpen ? "0 28px 28px 0" : "28px",
-            }}
-          >
+          {/* Chat panel */}
+          <div className="chat-panel" style={{ borderRadius: sidebarOpen ? "0 28px 28px 0" : "28px", borderLeft: sidebarOpen ? "none" : "1px solid rgba(244,167,185,0.28)" }}>
+
             {/* Header */}
             <div className="chat-header">
-              <button className="toggle-btn" onClick={() => setSidebarOpen((o) => !o)} title="Toggle sidebar">
-                {sidebarOpen ? "◀" : "▶"}
-              </button>
-              <div className="avatar-ring">🌸</div>
+              <button className="toggle-btn" onClick={() => setSidebarOpen(o => !o)}>{sidebarOpen ? "◀" : "▶"}</button>
+              <div className="avatar-ai">🌸</div>
               <VStack align="flex-start" spacing={0} flex={1} overflow="hidden">
-                <Text fontSize="17px" fontWeight="600" color="#fde8ef" letterSpacing="0.04em" lineHeight={1} noOfLines={1}>
+                <Text fontSize="16px" fontWeight="600" color="#fde8ef" letterSpacing="0.04em" lineHeight={1} noOfLines={1}>
                   What Can I Do for You Today?
                 </Text>
                 <Text fontSize="11px" color="rgba(244,167,185,0.5)" fontWeight="300" noOfLines={1}>
                   {activeConvo?.title === "New Chat" ? "Start a conversation" : activeConvo?.title}
                 </Text>
               </VStack>
-              <Box w="8px" h="8px" borderRadius="full" bg="#7dffb3" boxShadow="0 0 8px #7dffb3" flexShrink={0}
-                sx={{ animation: "statusBlink 2s ease-in-out infinite" }}/>
+              <div className="status-dot"/>
             </div>
 
             {/* Messages */}
-            <Box flex="1" overflowY="auto" className="feed-area" p="4">
+            <div className="feed-area">
               <ScrollableFeed>
                 {chat.length === 0 && (
                   <Text textAlign="center" color="rgba(244,167,185,0.35)" fontSize="sm" mt="10" fontStyle="italic" letterSpacing="0.08em">
                     ✿ ask anything under the blossoms ✿
                   </Text>
                 )}
+
                 {chat.map((c, i) => (
-                  <HStack key={i} justify={c.role === "user" ? "flex-end" : "flex-start"} mb="3" align="flex-end">
+                  <MotionDiv
+                    key={i}
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3, ease: "easeOut" }}
+                    style={{ display:"flex", justifyContent: c.role === "user" ? "flex-end" : "flex-start", marginBottom: 14 }}
+                  >
+                    {/* AI avatar on left */}
+                    {c.role === "ai" && (
+                      <div className="msg-avatar-ai" style={{ marginRight: 8 }}>🌸</div>
+                    )}
+
                     <VStack align={c.role === "user" ? "flex-end" : "flex-start"} spacing="1">
-                      {c.fileName && (
-                        <div className="file-chip">
-                          <span>📎</span><span>{c.fileName}</span>
-                        </div>
-                      )}
+                      {c.fileName && <div className="file-chip"><span>📎</span><span>{c.fileName}</span></div>}
+
                       {c.content && c.content !== `📎 ${c.fileName}` && (
-                        <MotionBox
-                          className={c.role === "user" ? "bubble-user" : "bubble-ai"}
-                          px="4" py="2.5" maxW="270px" wordBreak="break-word"
-                          fontSize="15px" lineHeight="1.65"
-                          initial={{ opacity: 0, y: 8, scale: 0.96 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          transition={{ duration: 0.3, ease: "easeOut" }}
-                        >
-                          {c.content}
-                        </MotionBox>
+                        c.role === "ai" ? (
+                          <AIBubble content={c.content} isLatest={i === latestAiIndex} />
+                        ) : (
+                          <MotionBox
+                            className="bubble-user"
+                            px="4" py="2.5" maxW={{ base:"85vw", md:"270px" }} wordBreak="break-word"
+                            fontSize="15px" lineHeight="1.65"
+                            initial={{ opacity:0, y:8, scale:0.96 }}
+                            animate={{ opacity:1, y:0, scale:1 }}
+                            transition={{ duration:0.3, ease:"easeOut" }}
+                          >
+                            {c.content}
+                          </MotionBox>
+                        )
                       )}
+
+                      {/* Timestamp */}
+                      {c.time && <div className="msg-time">{c.time}</div>}
                     </VStack>
-                  </HStack>
+
+                    {/* User avatar on right */}
+                    {c.role === "user" && (
+                      <div className="msg-avatar-user" style={{ marginLeft: 8 }}>🧑</div>
+                    )}
+                  </MotionDiv>
                 ))}
 
                 <AnimatePresence>
                   {loading && (
-                    <MotionBox
-                      initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                      className="bubble-ai" px="4" py="2.5" display="inline-flex" alignItems="center" gap="6px" mb="3"
-                    >
-                      <span className="dot" style={{ width: 7, height: 7 }}/>
-                      <span className="dot" style={{ width: 7, height: 7 }}/>
-                      <span className="dot" style={{ width: 7, height: 7 }}/>
+                    <MotionBox initial={{ opacity:0, y:6 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0 }}
+                      style={{ display:"flex", alignItems:"center", gap:8, marginBottom:14 }}>
+                      <div className="msg-avatar-ai">🌸</div>
+                      <Box className="bubble-ai" px="4" py="3" display="inline-flex" alignItems="center" gap="6px">
+                        <span className="dot"/><span className="dot"/><span className="dot"/>
+                      </Box>
                     </MotionBox>
                   )}
                 </AnimatePresence>
               </ScrollableFeed>
-            </Box>
+            </div>
 
-            {/* File preview strip */}
+            {/* File preview */}
             <AnimatePresence>
               {uploadedFile && (
-                <MotionBox
-                  initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
-                  px="4" py="2" borderTop="1px solid rgba(244,167,185,0.12)" bg="rgba(0,0,0,0.1)"
-                >
+                <MotionBox initial={{ opacity:0, height:0 }} animate={{ opacity:1, height:"auto" }} exit={{ opacity:0, height:0 }}
+                  px="4" py="2" borderTop="1px solid rgba(244,167,185,0.12)" bg="rgba(0,0,0,0.1)">
                   <HStack>
                     <Text fontSize="12px" color="rgba(244,167,185,0.8)">📎 {uploadedFile.name}</Text>
-                    <Button size="xs" variant="ghost" color="rgba(244,167,185,0.6)"
-                      onClick={() => setUploadedFile(null)} _hover={{ color: "#fde8ef" }} ml="auto">✕</Button>
+                    <Button size="xs" variant="ghost" color="rgba(244,167,185,0.6)" onClick={() => setUploadedFile(null)} _hover={{ color:"#fde8ef" }} ml="auto">✕</Button>
                   </HStack>
                 </MotionBox>
               )}
             </AnimatePresence>
 
-            {/* Input row */}
-            <Box px="4" pb="5" pt="3" borderTop="1px solid rgba(244,167,185,0.15)" bg="rgba(0,0,0,0.18)">
-              <input
-                ref={fileInputRef} type="file" style={{ display: "none" }}
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) setUploadedFile(f); e.target.value = ""; }}
-              />
+            {/* Input */}
+            <div className="input-area">
+              <input ref={fileInputRef} type="file" style={{ display:"none" }}
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) setUploadedFile(f); e.target.value=""; }}/>
               <HStack>
                 <div className="input-wrap">
                   <Tooltip label="Attach file" placement="top">
@@ -511,23 +574,18 @@ function App() {
                       </svg>
                     </button>
                   </Tooltip>
-                  <Input
-                    variant="unstyled" placeholder="Whisper your question…"
-                    value={message} onChange={(e) => setMessage(e.target.value)}
+                  <Input variant="unstyled" placeholder="Whisper your question…" value={message}
+                    onChange={(e) => setMessage(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && sendMessage()}
                     color="#fde8ef" fontSize="15px" fontFamily="'Cormorant Garamond', serif" py="2"
-                    _placeholder={{ color: "rgba(244,167,185,0.45)", fontStyle: "italic" }}
-                  />
+                    _placeholder={{ color:"rgba(244,167,185,0.45)", fontStyle:"italic" }}/>
                 </div>
-                <Button
-                  onClick={sendMessage} isLoading={loading}
+                <Button onClick={sendMessage} isLoading={loading}
                   borderRadius="full" w="46px" h="46px" minW="46px" p={0}
-                  bg="linear-gradient(135deg, #f4a7b9, #c96b8a)"
-                  color="white" border="none"
+                  bg="linear-gradient(135deg, #f4a7b9, #c96b8a)" color="white" border="none"
                   boxShadow="0 4px 18px rgba(201,107,138,0.45)"
-                  _hover={{ transform: "scale(1.08) rotate(-5deg)", boxShadow: "0 6px 28px rgba(201,107,138,0.65)" }}
-                  _active={{ transform: "scale(0.95)" }} transition="all 0.2s"
-                >
+                  _hover={{ transform:"scale(1.08) rotate(-5deg)", boxShadow:"0 6px 28px rgba(201,107,138,0.65)" }}
+                  _active={{ transform:"scale(0.95)" }} transition="all 0.2s">
                   {!loading && (
                     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                       <line x1="22" y1="2" x2="11" y2="13"/>
@@ -536,12 +594,10 @@ function App() {
                   )}
                 </Button>
               </HStack>
-            </Box>
-          </Box>
-        </HStack>
+            </div>
+          </div>
+        </div>
       </div>
     </ChakraProvider>
   );
 }
-
-export default App;
